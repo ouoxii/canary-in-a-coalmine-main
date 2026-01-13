@@ -51,207 +51,208 @@ parser.add_argument('--pkeep', default=0.5, type=float)
 
 args = parser.parse_args()
 
-if args.num_shadow is not None:	
-    args.job_name = args.name + f'_shadow_{args.shadow_id}'	
-else:	
-    args.job_name = args.name + '_target'
+if __name__ == '__main__':
+    if args.num_shadow is not None:
+        args.job_name = args.name + f'_shadow_{args.shadow_id}'
+    else:
+        args.job_name = args.name + '_target'
 
-# take in args
-usewandb = not args.nowandb
-name = args.job_name
-if usewandb:
-    import wandb
-    wandb.init(project='canary_shadow_model', name=name)
-    wandb.config.update(args)
+    # take in args
+    usewandb = not args.nowandb
+    name = args.job_name
+    if usewandb:
+        import wandb
+        wandb.init(project='canary_shadow_model', name=name)
+        wandb.config.update(args)
 
-bs = int(args.bs)
-imsize = int(args.size)
+    bs = int(args.bs)
+    imsize = int(args.size)
 
-use_amp = not args.noamp
-aug = args.aug
+    use_amp = not args.noamp
+    aug = args.aug
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-start_epoch = 0  # start from epoch 0 or last checkpoint epoch
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
-# Data
-print('==> Preparing data..')
-if args.net=="vit_timm":
-    size = 384
-else:
-    size = imsize
+    # Data
+    print('==> Preparing data..')
+    if args.net=="vit_timm":
+        size = 384
+    else:
+        size = imsize
 
-tv_dataset = get_dataset(args)
+    tv_dataset = get_dataset(args)
 
 
-if args.dataset == 'mnist':
-    transform_train = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(args.data_mean, args.data_std),
-    ])
+    if args.dataset == 'mnist':
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(args.data_mean, args.data_std),
+        ])
 
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(args.data_mean, args.data_std),
-    ])
-else:
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.Resize(size),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(args.data_mean, args.data_std),
-    ])
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(args.data_mean, args.data_std),
+        ])
+    else:
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.Resize(size),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(args.data_mean, args.data_std),
+        ])
 
-    transform_test = transforms.Compose([
-        transforms.Resize(size),
-        transforms.ToTensor(),
-        transforms.Normalize(args.data_mean, args.data_std),
-    ])
+        transform_test = transforms.Compose([
+            transforms.Resize(size),
+            transforms.ToTensor(),
+            transforms.Normalize(args.data_mean, args.data_std),
+        ])
 
-# Add RandAugment with N, M(hyperparameter)
-if aug:
-    N = 2; M = 14;
-    transform_train.transforms.insert(0, RandAugment(N, M))
+    # Add RandAugment with N, M(hyperparameter)
+    if aug:
+        N = 2; M = 14;
+        transform_train.transforms.insert(0, RandAugment(N, M))
 
-# Prepare dataset
-trainset = tv_dataset(root='./data', train=True, download=True, transform=transform_train)
-dataset_size = len(trainset)
+    # Prepare dataset
+    trainset = tv_dataset(root='./data', train=True, download=True, transform=transform_train)
+    dataset_size = len(trainset)
 
-if args.num_total:
-    dataset_size = args.num_total
+    if args.num_total:
+        dataset_size = args.num_total
 
-# set random seed
-set_random_seed(args.seed)
+    # set random seed
+    set_random_seed(args.seed)
 
-# get shadow dataset
-if args.num_shadow is not None:
     # get shadow dataset
-    keep = np.random.uniform(0, 1, size=(args.num_shadow, dataset_size))
-    order = keep.argsort(0)
-    keep = order < int(args.pkeep * args.num_shadow)
-    keep = np.array(keep[args.shadow_id], dtype=bool)
-    keep = keep.nonzero()[0]
-else:
-    # get target dataset
-    keep = np.random.choice(dataset_size, size=int(args.pkeep * dataset_size), replace=False)
-    keep.sort()
+    if args.num_shadow is not None:
+        # get shadow dataset
+        keep = np.random.uniform(0, 1, size=(args.num_shadow, dataset_size))
+        order = keep.argsort(0)
+        keep = order < int(args.pkeep * args.num_shadow)
+        keep = np.array(keep[args.shadow_id], dtype=bool)
+        keep = keep.nonzero()[0]
+    else:
+        # get target dataset
+        keep = np.random.choice(dataset_size, size=int(args.pkeep * dataset_size), replace=False)
+        keep.sort()
 
-keep_bool = np.full((dataset_size), False)
-keep_bool[keep] = True
+    keep_bool = np.full((dataset_size), False)
+    keep_bool[keep] = True
 
-trainset = torch.utils.data.Subset(trainset, keep)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=4)
+    trainset = torch.utils.data.Subset(trainset, keep)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=4)
 
-testset = tv_dataset(root='./data', train=False, download=True, transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=4)
+    testset = tv_dataset(root='./data', train=False, download=True, transform=transform_test)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=4)
 
-# Model factory..
-print('==> Building model..')
-net = load_model(args)
+    # Model factory..
+    print('==> Building model..')
+    net = load_model(args)
 
-# Loss is CE
-criterion = nn.CrossEntropyLoss()
+    # Loss is CE
+    criterion = nn.CrossEntropyLoss()
 
-if args.opt == "adam":
-    optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=5e-4)
-elif args.opt == "sgd":
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
-    
-# use cosine scheduling
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.n_epochs)
+    if args.opt == "adam":
+        optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=5e-4)
+    elif args.opt == "sgd":
+        optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
-##### Training
-scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    # use cosine scheduling
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.n_epochs)
 
-def train(epoch):
-    print('\nEpoch: %d' % epoch)
-    net.train()
-    train_loss = 0
-    correct = 0
-    total = 0
+    ##### Training
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
-        inputs, targets = inputs.to(device), targets.to(device)
-        # Train with amp
-        with torch.cuda.amp.autocast(enabled=use_amp):
-            outputs = net(inputs)
-            loss = criterion(outputs, targets)
+    def train(epoch):
+        print('\nEpoch: %d' % epoch)
+        net.train()
+        train_loss = 0
+        correct = 0
+        total = 0
 
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-        optimizer.zero_grad()
-
-        train_loss += loss.item()
-        _, predicted = outputs.max(1)
-        total += targets.size(0)
-        correct += predicted.eq(targets).sum().item()
-
-        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-
-    return train_loss/(batch_idx+1)
-
-##### Validation
-def test(epoch):
-    net.eval()
-    test_loss = 0
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
+        for batch_idx, (inputs, targets) in enumerate(trainloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs = net(inputs)
-            loss = criterion(outputs, targets)
+            # Train with amp
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                outputs = net(inputs)
+                loss = criterion(outputs, targets)
 
-            test_loss += loss.item()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
+
+            train_loss += loss.item()
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
-            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
-    
-    acc = 100.*correct/total
-    
-    os.makedirs('loglog', exist_ok=True)
-    content = time.ctime() + ' ' + f'Epoch {epoch}, lr: {optimizer.param_groups[0]["lr"]:.7f}, val loss: {test_loss:.5f}, acc: {(acc):.5f}'
-    with open(f'loglog/{name}.txt', 'a') as appender:
-        appender.write(content + "\n")
-    return test_loss, acc
+            progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
 
-list_loss = []
-list_acc = []
+        return train_loss/(batch_idx+1)
 
-if usewandb:
-    wandb.watch(net)
-    
-net.cuda()
+    ##### Validation
+    def test(epoch):
+        net.eval()
+        test_loss = 0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch_idx, (inputs, targets) in enumerate(testloader):
+                inputs, targets = inputs.to(device), targets.to(device)
+                outputs = net(inputs)
+                loss = criterion(outputs, targets)
 
-for epoch in range(start_epoch, args.n_epochs):
-    start = time.time()
-    trainloss = train(epoch)
-    val_loss, acc = test(epoch)
-    
-    scheduler.step() # step cosine scheduling
-    
-    list_loss.append(val_loss)
-    list_acc.append(acc)
-    
-    # Log training..
+                test_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
+
+                progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                    % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+
+        acc = 100.*correct/total
+
+        os.makedirs('loglog', exist_ok=True)
+        content = time.ctime() + ' ' + f'Epoch {epoch}, lr: {optimizer.param_groups[0]["lr"]:.7f}, val loss: {test_loss:.5f}, acc: {(acc):.5f}'
+        with open(f'loglog/{name}.txt', 'a') as appender:
+            appender.write(content + "\n")
+        return test_loss, acc
+
+    list_loss = []
+    list_acc = []
+
     if usewandb:
-        wandb.log({'epoch': epoch, 'train_loss': trainloss, 'val_loss': val_loss, 'val_acc': acc, 'lr': optimizer.param_groups[0]['lr'],
-        'epoch_time': time.time()-start})
+        wandb.watch(net)
 
-    # Write out csv..
-    with open(f'loglog/{name}.csv', 'w') as f:
-        writer = csv.writer(f, lineterminator='\n')
-        writer.writerow(list_loss) 
-        writer.writerow(list_acc) 
+    net.cuda()
 
-state = {"model": net.state_dict(),
-        "in_data": keep,
-        "keep_bool": keep_bool,
-        "model_arch": args.net}
-os.makedirs('saved_models/' + args.name, exist_ok=True)
-torch.save(state, './saved_models/' + args.name + '/' + args.job_name + '_last.pth')
+    for epoch in range(start_epoch, args.n_epochs):
+        start = time.time()
+        trainloss = train(epoch)
+        val_loss, acc = test(epoch)
+
+        scheduler.step() # step cosine scheduling
+
+        list_loss.append(val_loss)
+        list_acc.append(acc)
+
+        # Log training..
+        if usewandb:
+            wandb.log({'epoch': epoch, 'train_loss': trainloss, 'val_loss': val_loss, 'val_acc': acc, 'lr': optimizer.param_groups[0]['lr'],
+            'epoch_time': time.time()-start})
+
+        # Write out csv..
+        with open(f'loglog/{name}.csv', 'w') as f:
+            writer = csv.writer(f, lineterminator='\n')
+            writer.writerow(list_loss)
+            writer.writerow(list_acc)
+
+    state = {"model": net.state_dict(),
+            "in_data": keep,
+            "keep_bool": keep_bool,
+            "model_arch": args.net}
+    os.makedirs('saved_models/' + args.name, exist_ok=True)
+    torch.save(state, './saved_models/' + args.name + '/' + args.job_name + '_last.pth')
