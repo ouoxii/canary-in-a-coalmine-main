@@ -18,9 +18,14 @@
 
 ```powershell
 conda create -n canary python=3.10 -y
+pip install wandb
+pip install nvidia-ml-py3
+pip install matplotlib
+pip install scikit-learn
+pip install einops
 ```
 
-### 步驟 2：激活環境
+### 步驟 2：環境
 
 ```powershell
 conda activate canary
