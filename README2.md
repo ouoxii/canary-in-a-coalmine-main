@@ -337,3 +337,7 @@ python gen_canary.py --name wrn28-10 --save_name test_offline --offline --num_sh
 ---
 
 **最後更新**：2026 年 1 月 14 日
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run_full_experiments.ps1
+```
